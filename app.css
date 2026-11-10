@@ -22,3 +22,13 @@ h1 { font-size: 28px; margin: 0 0 4px; }
 canvas { width: 100%; height: auto; background: #1a1a1a; border-radius: 8px; }
 #heartbeats { list-style: none; padding: 16px 0 0; margin: 0; font-variant-numeric: tabular-nums; }
 #heartbeats li { padding: 4px 0; color: #bbb; font-size: 13px; }
+
+#stale-banner {
+  margin: 0 0 16px;
+  padding: 8px 10px;
+  border: 1px solid #a63;
+  background: #2a1a0a;
+  color: #fc8;
+  border-radius: 4px;
+  font-size: 13px;
+}
