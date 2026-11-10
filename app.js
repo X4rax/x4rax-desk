@@ -22,7 +22,13 @@
      back off 15s → 30s → 60s (cap) and reset to 15s on success.
    - If the newest heartbeat or the snapshot_at timestamp is more than
      two minutes old, a small banner (textContent only) shows
-     "Desk data is stale since HH:MM". */
+     "Desk data is stale since HH:MM".
+   - FOMO links (profile, invite) are rendered only from the API payload
+     (state.fomo). This file never builds a FOMO URL. A link is shown only
+     if it is https and carries the referral code the payload names
+     (link_ref). Each one has a caption (link_note) saying it only opens
+     FOMO, the desk places no orders, and you trade there yourself. Links
+     open with rel="noopener noreferrer"; text goes in with textContent. */
 (function () {
   "use strict";
   var API_BASE = "https://x4rax-desk.riadh-ferjani02.workers.dev"; /* Cloudflare Worker origin */
@@ -181,6 +187,82 @@
     heartbeatsEl.replaceChildren.apply(heartbeatsEl, items);
   }
 
+  /* ---- FOMO links: from the API payload only, always with the disclosure ---- */
+  var FALLBACK_NOTE = "Opens FOMO. The desk places no orders; you trade on FOMO yourself.";
+
+  function safeFomoUrl(url, ref) {
+    if (typeof url !== "string" || !ref || url.indexOf(ref) === -1) return "";
+    var u;
+    try { u = new URL(url); } catch (e) { return ""; }
+    return u.protocol === "https:" ? url : "";
+  }
+
+  function noteEl(note) {
+    var p = document.createElement("p");
+    p.className = "link-note";
+    p.textContent = typeof note === "string" && note ? note : FALLBACK_NOTE;
+    return p;
+  }
+
+  /* Adds <li><span label/><a href=payload url>text</a><p caption/></li>. Returns the li or null. */
+  function renderFomoLink(list, label, text, url, fomo) {
+    var href = safeFomoUrl(url, fomo && fomo.link_ref);
+    if (!href) return null;
+    var li = document.createElement("li");
+    var lab = document.createElement("span");
+    lab.className = "row-label";
+    lab.textContent = label;
+    var a = document.createElement("a");
+    a.setAttribute("href", href);
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener noreferrer");
+    a.setAttribute("data-link-kind", String(fomo.link_kind || ""));
+    a.textContent = text;
+    li.appendChild(lab);
+    li.appendChild(a);
+    li.appendChild(noteEl(fomo.link_note));
+    list.appendChild(li);
+    return li;
+  }
+
+  function inviteRow(list, fomo) {
+    var href = safeFomoUrl(fomo.signup_url, fomo.link_ref);
+    if (!href) return;
+    var li = document.createElement("li");
+    var lab = document.createElement("span");
+    lab.className = "row-label";
+    lab.textContent = "Invite a friend (referral link)";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("data-link-kind", String(fomo.link_kind || ""));
+    btn.textContent = "Invite a friend";
+    var status = document.createElement("p");
+    status.className = "link-note";
+    status.textContent = typeof fomo.link_note === "string" && fomo.link_note ? fomo.link_note : FALLBACK_NOTE;
+    btn.addEventListener("click", function () {
+      if (navigator.share) {
+        navigator.share({ url: href }).catch(function () {});
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(href).then(function () { status.textContent = "Link copied. " + (fomo.link_note || FALLBACK_NOTE); }).catch(function () {});
+      }
+    });
+    li.appendChild(lab);
+    li.appendChild(btn);
+    li.appendChild(status);
+    list.appendChild(li);
+  }
+
+  function showFomo(fomo) {
+    var section = document.getElementById("fomo");
+    var list = document.getElementById("fomo-links");
+    if (!section || !list) return;
+    if (!fomo || typeof fomo !== "object") { section.hidden = true; return; }
+    list.replaceChildren();
+    renderFomoLink(list, "Your FOMO profile", "Open profile on FOMO", fomo.profile_url, fomo);
+    inviteRow(list, fomo);
+    section.hidden = list.children.length === 0;
+  }
+
   function setPairStatus(text) {
     if (!pairBox) return;
     var status = pairBox.querySelector("#pair-status");
@@ -195,6 +277,7 @@
   function showPairing(message) {
     pausePolling();
     hideStaleBanner();
+    showFomo(null);
     if (modeEl) modeEl.textContent = "PAPER";
     showMessage(message || "Enter the pairing code shown on the desk.");
     if (pairBox) {
@@ -316,6 +399,7 @@
       /* The badge shows PAPER unless the server explicitly says LIVE. */
       if (modeEl) modeEl.textContent = data && data.mode === "LIVE" ? "LIVE" : "PAPER";
       showHeartbeats(data && data.heartbeats);
+      showFomo(data && data.fomo);
       updateStaleBanner(data);
       backoffMs = POLL_MS;
       schedule(POLL_MS);

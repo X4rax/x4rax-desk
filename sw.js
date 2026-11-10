@@ -1,7 +1,7 @@
 /* Service worker placeholder. Web Push lands in a later step.
    CACHE is bumped when app.js / manifest / static assets change so
    iOS home-screen apps fetch the new files. */
-var CACHE = "desk-v6";
+var CACHE = "desk-v7";
 var ASSETS = ["./index.html", "./app.js", "./app.css", "./chart.js", "./manifest.json"];
 
 self.addEventListener("install", function (event) {
