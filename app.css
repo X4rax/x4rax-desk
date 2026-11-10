@@ -32,3 +32,16 @@ canvas { width: 100%; height: auto; background: #1a1a1a; border-radius: 8px; }
   border-radius: 4px;
   font-size: 13px;
 }
+
+#fomo { margin-top: 28px; }
+#fomo h2 { font-size: 17px; margin: 0 0 6px; }
+.fomo-local { margin: 0 0 12px; color: #999; font-size: 12px; line-height: 1.4; }
+#fomo-links { list-style: none; margin: 0; padding: 0; }
+#fomo-links li { padding: 10px 0; border-top: 1px solid #2a2a2a; }
+#fomo-links .row-label { display: block; font-size: 13px; color: #bbb; margin-bottom: 4px; }
+#fomo-links a, #fomo-links button {
+  display: inline-block; min-height: 44px; min-width: 44px; padding: 10px 14px;
+  background: #1c1c1e; color: #0a84ff; border: 0; border-radius: 10px;
+  font: inherit; font-size: 15px; text-decoration: none;
+}
+.link-note { margin: 6px 0 0; color: #8e8e93; font-size: 11px; line-height: 1.35; }
