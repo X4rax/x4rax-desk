@@ -1,0 +1,6 @@
+.secrets/
+*.db
+*.db-*
+logs/
+.env
+*.pem

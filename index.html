@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Desk">
+  <meta name="theme-color" content="#111111">
+  <title>Desk · PAPER</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Desk</h1>
+      <p class="mode" id="mode">PAPER</p>
+    </header>
+    <section>
+      <p>Placeholder app. Agents, charts and trade buttons land in later steps.</p>
+      <canvas id="chart" width="320" height="160" aria-label="Balance chart placeholder"></canvas>
+      <ul id="heartbeats"></ul>
+    </section>
+  </main>
+  <script src="chart.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
