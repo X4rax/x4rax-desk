@@ -7,10 +7,15 @@
      A strict Content-Security-Policy in index.html blocks third-party and inline
      scripts, which is what could otherwise read it.
    - It is cleared on any 401, and by opening the app with #logout.
-   - API data is never inserted as HTML; only textContent is used. */
+   - API data is never inserted as HTML; only textContent is used.
+   - API_BASE will be set to the Cloudflare Worker origin (https://<worker>.workers.dev)
+     after deploy. Leave it as "" until then so the app stays same-origin.
+   - When API_BASE is set, index.html's Content-Security-Policy connect-src must
+     also allow that Worker origin, e.g. connect-src 'self' https://<worker>.workers.dev.
+     Do not change the CSP until the Worker origin is known. */
 (function () {
   "use strict";
-  var API_BASE = ""; /* set to the Cloudflare Worker origin in a later step */
+  var API_BASE = "https://x4rax-desk.riadh-ferjani02.workers.dev"; /* Cloudflare Worker origin */
   var KEY = "app_token";
   var TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
   var heartbeatsEl = document.getElementById("heartbeats");
