@@ -66,7 +66,7 @@
   };
   var D = {};          /* key -> latest payload (only what the Worker returned) */
   var M = {};          /* key -> { at, status, unavailable, error } fetch bookkeeping */
-  var X = { coin: {}, audit: {}, decisions: {} };   /* on-demand payloads by mint / agent */
+  var X = { coin: {}, audit: {}, decisions: {}, chart: {} };   /* on-demand payloads by mint / agent */
   var XM = {};         /* on-demand bookkeeping, same shape as M */
   var handlers = {};
   var screens = Array.prototype.slice.call(document.querySelectorAll(".screen"));
@@ -114,7 +114,7 @@
     if (existing) revokeSelf(existing);
     clearToken();
     forgetSeen();
-    D = {}; M = {}; X.coin = {}; X.audit = {}; X.decisions = {};
+    D = {}; M = {}; X.coin = {}; X.audit = {}; X.decisions = {}; X.chart = {};
     Object.keys(XM).forEach(function (k) { delete XM[k]; });
   }
 

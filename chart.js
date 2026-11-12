@@ -198,6 +198,125 @@
     return st;
   }
 
-  window.DeskCharts = { equity: equity, candles: candles };
+
+  /* Advanced equity chart (v11). model = {points:[{t,v,lo?,hi?}], mode:"usd"|"pct", base, marks:[{t,kind,tone}], spans:[[t0,t1]],
+     bucket_s}. Draws only the given points: the line is broken across gaps (shaded), a bucket's low/high is drawn as a thin range bar
+     (so a short dip stays visible), BUY / SELL marks sit on the line. opts.onProbe(point, index) reports the point under the finger. */
+  function advEquity(canvas, model, opts) {
+    opts = opts || {};
+    var C = colors();
+    var pts = (model.points || []).filter(function (p) { return p && isFinite(p.t) && isFinite(p.v); });
+    var mode = model.mode === "pct" ? "pct" : "usd";
+    var base = isFinite(model.base) && model.base > 0 ? model.base : null;
+    function Yv(v) { return mode === "pct" ? (base === null ? null : (v / base - 1) * 100) : v; }
+    var st = { items: pts, n: pts.length, cursor: -1, onProbe: opts.onProbe };
+    function draw(cur) {
+      var s = setup(canvas), ctx = s.ctx, W = s.w, H = s.h;
+      var L = 6, R = 6, T = 12, B = 18;
+      var ys = pts.map(function (p) { return Yv(p.v); });
+      if (pts.length < 2 || ys.some(function (y) { return y === null; })) {
+        ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(L, H / 2); ctx.lineTo(W - R, H / 2); ctx.stroke(); ctx.setLineDash([]);
+        return;
+      }
+      var lo = Infinity, hi = -Infinity;
+      pts.forEach(function (p, i) {
+        var a = isFinite(p.lo) ? Yv(p.lo) : ys[i], b = isFinite(p.hi) ? Yv(p.hi) : ys[i];
+        lo = Math.min(lo, ys[i], a); hi = Math.max(hi, ys[i], b);
+      });
+      var ref = mode === "pct" ? 0 : base;
+      if (ref !== null) { lo = Math.min(lo, ref); hi = Math.max(hi, ref); }
+      var rng = niceRange(lo, hi);
+      var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+      function X(t) { return L + (t1 === t0 ? 0 : (t - t0) / (t1 - t0)) * (W - L - R); }
+      function Y(y) { return T + (1 - (y - rng[0]) / (rng[1] - rng[0])) * (H - T - B); }
+      var last = ys[ys.length - 1];
+      var col = ref !== null ? (last >= ref ? C.ok : C.bad) : (last >= ys[0] ? C.ok : C.bad);
+      ctx.strokeStyle = C.line; ctx.lineWidth = 1;
+      for (var g = 0; g < 4; g++) { var gy = T + g * (H - T - B) / 3; ctx.beginPath(); ctx.moveTo(L, gy); ctx.lineTo(W - R, gy); ctx.stroke(); }
+      // gaps: shaded, the line does not cross them
+      (model.spans || []).forEach(function (sp) {
+        var x0 = X(sp[0]), x1 = X(sp[1]);
+        ctx.fillStyle = "rgba(255,176,32,0.07)"; ctx.fillRect(x0, T, Math.max(1, x1 - x0), H - T - B);
+        ctx.strokeStyle = "rgba(255,176,32,0.35)"; ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(x0, T); ctx.lineTo(x0, H - B); ctx.moveTo(x1, T); ctx.lineTo(x1, H - B); ctx.stroke(); ctx.setLineDash([]);
+      });
+      if (ref !== null) {
+        ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.setLineDash([3, 4]);
+        ctx.beginPath(); ctx.moveTo(L, Y(ref)); ctx.lineTo(W - R, Y(ref)); ctx.stroke(); ctx.setLineDash([]);
+      }
+      // segments between gaps
+      var segs = [], cur0 = [];
+      pts.forEach(function (p, i) {
+        if (i && model.bucket_s && p.t - pts[i - 1].t > model.bucket_s * 1.5) { segs.push(cur0); cur0 = []; }
+        cur0.push(i);
+      });
+      segs.push(cur0);
+      var grad = ctx.createLinearGradient(0, T, 0, H - B);
+      grad.addColorStop(0, col + "44"); grad.addColorStop(1, col + "00");
+      segs.forEach(function (sg) {
+        if (sg.length < 2) return;
+        ctx.beginPath(); ctx.moveTo(X(pts[sg[0]].t), H - B);
+        sg.forEach(function (i) { ctx.lineTo(X(pts[i].t), Y(ys[i])); });
+        ctx.lineTo(X(pts[sg[sg.length - 1]].t), H - B); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+      });
+      // low/high range bars
+      ctx.strokeStyle = col + "99"; ctx.lineWidth = 1.5;
+      pts.forEach(function (p, i) {
+        if (!isFinite(p.lo) && !isFinite(p.hi)) return;
+        var a = isFinite(p.lo) ? Yv(p.lo) : ys[i], b = isFinite(p.hi) ? Yv(p.hi) : ys[i];
+        ctx.beginPath(); ctx.moveTo(X(p.t), Y(a)); ctx.lineTo(X(p.t), Y(b)); ctx.stroke();
+      });
+      ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.lineJoin = "round";
+      segs.forEach(function (sg) {
+        ctx.beginPath();
+        sg.forEach(function (i, k) { if (k) ctx.lineTo(X(pts[i].t), Y(ys[i])); else ctx.moveTo(X(pts[i].t), Y(ys[i])); });
+        if (sg.length === 1) ctx.lineTo(X(pts[sg[0]].t) + 0.1, Y(ys[sg[0]]));
+        ctx.stroke();
+      });
+      ctx.shadowBlur = 0;
+      // BUY / SELL marks, on the line at the bucket they fall into
+      function nearest(t) {
+        var bi = 0, bd = Infinity;
+        for (var i = 0; i < pts.length; i++) { var d = Math.abs(pts[i].t - t); if (d < bd) { bd = d; bi = i; } }
+        return bi;
+      }
+      (model.marks || []).forEach(function (m) {
+        if (!isFinite(m.t) || m.t < t0 || m.t > t1 + (model.bucket_s || 0)) return;
+        var i = nearest(m.t), x = X(Math.min(m.t, t1)), y = Y(ys[i]), buy = m.kind === "bought";
+        ctx.fillStyle = buy ? C.auditor : (m.tone === "red" || m.kind === "stopped" ? C.bad : C.ok);
+        ctx.strokeStyle = "#05060a"; ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        if (buy) { ctx.moveTo(x, y - 9); ctx.lineTo(x - 5, y - 1); ctx.lineTo(x + 5, y - 1); } else { ctx.moveTo(x, y + 9); ctx.lineTo(x - 5, y + 1); ctx.lineTo(x + 5, y + 1); }
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      });
+      ctx.fillStyle = C.faint; ctx.font = "10px -apple-system, system-ui, sans-serif"; ctx.textBaseline = "alphabetic";
+      ctx.textAlign = "left"; ctx.fillText(opts.fmtX ? opts.fmtX(t0) : "", L, H - 4);
+      ctx.textAlign = "right"; ctx.fillText(opts.fmtX ? opts.fmtX(t1) : "", W - R, H - 4);
+      ctx.textAlign = "left"; ctx.fillText(opts.fmtY ? opts.fmtY(rng[1]) : "", L + 2, T + 9);
+      ctx.fillText(opts.fmtY ? opts.fmtY(rng[0]) : "", L + 2, H - B - 3);
+      var k = cur >= 0 ? cur : pts.length - 1, p = pts[k];
+      if (cur >= 0) {
+        ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(X(p.t), T); ctx.lineTo(X(p.t), H - B); ctx.stroke();
+      }
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(p.t), Y(ys[k]), cur >= 0 ? 4.5 : 3.5, 0, 6.2832); ctx.fill();
+      ctx.strokeStyle = "#05060a"; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    st.draw = draw;
+    st.indexAt = function (x) {
+      if (pts.length < 2) return -1;
+      var W = canvas.clientWidth || 320, L = 6, R = 6;
+      var f = Math.max(0, Math.min(1, (x - L) / (W - L - R)));
+      var t = pts[0].t + f * (pts[pts.length - 1].t - pts[0].t), best = 0, bd = Infinity;
+      for (var i = 0; i < pts.length; i++) { var d = Math.abs(pts[i].t - t); if (d < bd) { bd = d; best = i; } }
+      return best;
+    };
+    attachProbe(canvas, st);
+    draw(-1);
+    return st;
+  }
+
+  window.DeskCharts = { equity: equity, candles: candles, advEquity: advEquity };
   window.drawDeskChart = function () {};
 })();

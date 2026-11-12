@@ -651,3 +651,43 @@ body[data-demo="1"] .topbar::after { content: "DEMO DATA"; padding: 2px 8px; bor
 .btn-danger { color: #ffb4c2; background: rgb(var(--bad-rgb) / .1); border: 1px solid rgb(var(--bad-rgb) / .55); width: 100%; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); } .dot-ok { background: var(--ok); box-shadow: 0 0 8px rgb(var(--ok-rgb) / .7); } .dot-warn { background: var(--warn); }
 @media (prefers-reduced-motion: reduce) { .jump-chip:active { transform: none; } }
+
+
+/* ---------- v11: Advanced Dashboard (equity chart controls, P&L labels, trade history) ---------- */
+.adv-tabrow { display: flex; gap: 8px; align-items: center; }
+.adv-tabrow > .seg-tabs:first-child { flex: 1; min-width: 0; }
+.seg-sm { flex: none; }
+.seg-sm .seg-tab { flex: none; min-width: 38px; padding: 0 12px; }
+.chart-adv { height: 230px; }
+.chart-note { margin: 0; padding: 8px 12px; border-radius: var(--r-md); font-size: 12.5px; line-height: 1.4; color: #ffd9a1; background: rgb(var(--warn-rgb) / .1); border: 1px dashed rgb(var(--warn-rgb) / .6); }
+.chart-note[data-tone="info"] { color: var(--text-dim); background: rgba(255,255,255,.04); border-color: var(--line-strong); }
+.chart-note[hidden] { display: none; }
+.chart-legend { margin: 0; }
+.range-sum[hidden] { display: none; }
+.range-grid { grid-template-columns: repeat(3, 1fr); }
+.na { font-size: 11px; font-weight: 500; font-style: italic; color: var(--text-faint); line-height: 1.3; }
+.pnl-sub { font-size: 10px; color: var(--text-faint); line-height: 1.25; }
+.hero-asof { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0; font-size: 11.5px; color: var(--text-faint); }
+.hero-asof.is-stale { color: #ffd9a1; }
+.est-line { margin: 2px 0 0; font-size: 11.5px; color: var(--text-dim); line-height: 1.35; }
+.est-tag { display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em; color: #ffd9a1; border: 1px dashed rgb(var(--warn-rgb) / .6); }
+.pos-glance { cursor: default; align-items: flex-start; }
+.pos-glance[role="button"] { cursor: pointer; }
+.trade { border-top: 1px solid var(--line); }
+.trade:first-child { border-top: 0; }
+.trade .closed-row { border-top: 0; }
+.trade.is-open { background: rgba(255,255,255,.02); }
+.trade-detail { display: grid; gap: 10px; padding: 2px 0 12px; }
+.trade-kv { font-size: 12.5px; }
+.trade-kv dd { text-align: right; font-variant-numeric: tabular-nums; }
+.trade-acts { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.trade-acts .btn-ghost { width: auto; margin-top: 0; min-height: 44px; padding: 0 16px; }
+.trade-acts .ext-links li { padding: 0; }
+.trade-tot { margin-bottom: 8px; }
+@media (max-width: 374px) {
+  .tile-v { font-size: 15px; } .tiles { gap: 6px; } .tile { padding: 8px; } .hero-balance { font-size: 34px; }
+  .range-grid { grid-template-columns: repeat(2, 1fr); } .seg-sm .seg-tab { padding: 0 9px; min-width: 34px; }
+}
+@media (orientation: landscape) and (max-height: 500px) { .chart-adv { height: 170px; } }
+.hero .chips-row { display: grid; grid-template-columns: repeat(2, 1fr); }
+.hero .pnl-pill { min-width: 0; }

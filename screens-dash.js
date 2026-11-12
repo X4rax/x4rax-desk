@@ -12,8 +12,11 @@
   var DECIDERS = ["scanner", "auditor", "analyst", "executor", "risk"];
   var STATE_TEXT = { scanning: "Scanning", analyzing: "Analyzing", processing: "Processing", idle: "Idle", waiting: "Waiting",
                      error: "Error", stale: "No heartbeat", stalled: "Stalled", paused: "Paused", unknown: "No data yet", running: "Online" };
-  var RANGES = [["1H", 3600], ["6H", 21600], ["1D", 86400], ["ALL", 0]];
-  var rangeSel = "ALL";
+  var DA = window.DeskAdv;
+  var NA = DA.NA;
+  var rangeSel = "24H", modeSel = "usd";   /* equity range tab and $ / % toggle: kept in memory only */
+  var chartTried = {};                      /* Worker chart key -> when this app last asked for it (no standing poll: see ensureChart) */
+  var openTrades = {};                      /* trade ids whose details are expanded */
   var decSel = "scanner";
   var showAllEvents = false, showAllAlerts = false;
   var charts = {};
@@ -117,26 +120,43 @@
       hero: h("div"), waiting: h("div"), equityWrap: h("section", "card equity-card"), perf: h("div"), alerts: h("div"), agents: h("div"),
       feed: h("div"), dec: h("div"), foot: h("div"), pos: h("div"), disc: h("div")
     };
+    dash.hero.setAttribute("data-blk", "hero"); dash.pos.setAttribute("data-blk", "pos"); dash.perf.setAttribute("data-blk", "perf");
     // equity chart shell (persistent so the canvas survives updates)
     var head = add(h("div", "card-head"), h("h3", null, "Equity curve"), tags("sim"));
     var tabs = h("div", "seg-tabs");
     tabs.setAttribute("role", "tablist");
     tabs.setAttribute("aria-label", "Equity range");
-    RANGES.forEach(function (r) {
-      var b = h("button", "seg-tab", r[0]);
+    DA.TABS.forEach(function (r) {
+      var b = h("button", "seg-tab", r.label);
       b.type = "button";
       b.setAttribute("role", "tab");
-      b.setAttribute("data-range", r[0]);
-      b.addEventListener("click", function () { rangeSel = r[0]; updateDash(); });
+      b.setAttribute("data-range", r.id);
+      b.addEventListener("click", function () { rangeSel = r.id; updateDash(); });
       tabs.appendChild(b);
     });
+    var modes = h("div", "seg-tabs seg-sm");
+    modes.setAttribute("role", "group");
+    modes.setAttribute("aria-label", "Chart units");
+    [["usd", "$", "Equity in dollars"], ["pct", "%", "P&L in percent of the $200 start"]].forEach(function (m) {
+      var b = h("button", "seg-tab", m[1]);
+      b.type = "button";
+      b.setAttribute("data-mode", m[0]);
+      b.setAttribute("aria-label", m[2]);
+      b.addEventListener("click", function () { modeSel = m[0]; updateDash(); });
+      modes.appendChild(b);
+    });
+    var tabrow = add(h("div", "adv-tabrow"), tabs, modes);
+    var note = h("p", "chart-note");
+    note.hidden = true;
     var probe = h("p", "probe");
     probe.setAttribute("aria-live", "off");
-    var canvas = h("canvas", "chart-canvas");
+    var canvas = h("canvas", "chart-canvas chart-adv");
     canvas.setAttribute("role", "img");
+    var sum = h("div", "range-sum");
+    var legend = h("p", "chart-cap chart-legend");
     var cap = h("p", "chart-cap");
-    add(dash.equityWrap, head, tabs, probe, canvas, cap);
-    dash.eq = { tabs: tabs, probe: probe, canvas: canvas, cap: cap };
+    add(dash.equityWrap, head, tabrow, note, probe, canvas, legend, sum, cap);
+    dash.eq = { tabs: tabs, modes: modes, note: note, probe: probe, canvas: canvas, sum: sum, legend: legend, cap: cap };
     var intro = h("div", "dash-links");
     var go = h("button", "btn btn-ghost");
     go.type = "button";
@@ -147,28 +167,47 @@
     void intro;
   }
 
+  function fillAsOf(el, hm) {
+    var src = hm.source === "pulse" ? "live balance (5 s)" : hm.source === "portfolio" ? "balance from the 30 s portfolio (live 5 s block not available yet)" : "balance from the desk state";
+    el.classList.toggle("is-stale", !!hm.stale);
+    var kids = [];
+    if (hm.stale) kids.push(UI.chip("STALE", "warn"));
+    kids.push(h("span", null, (hm.asOf ? "Desk snapshot " + f.clock(new Date(hm.asOf).toISOString()) + " · " : "") + src +
+      (hm.stale ? (hm.ageMs !== null ? " · data is " + f.ago(hm.ageMs).replace(" ago", "") + " old" : " · updates failing") : "")));
+    el.replaceChildren.apply(el, kids);
+  }
+  function naCell(text) { var e = h("span", "na", text || NA); return e; }
   function heroCard() {
-    var P = D().portfolio, S = D().state, c = h("section", "glow-card hero");
+    var hm = DA.heroModel(D(), M(), Date.now()), P = D().portfolio, S = D().state, c = h("section", "glow-card hero");
     var head = add(h("div", "card-head"), h("p", "eyebrow", "PAPER portfolio"), tags("sim"));
     add(c, head);
-    var bal = P ? P.balance : (S ? S.balance : null);
-    add(c, h("p", "hero-balance", f.money(bal)));
-    var start = P ? P.start_stack : (S ? S.start_value : null);
-    var ret = P ? P.total_return_pct : (S && S.start_value ? (S.balance / S.start_value - 1) * 100 : null);
-    add(c, h("p", "hero-sub", (start ? "Started with " + f.money(start) : "") + (f.num(ret) ? " · " + sgnPct(ret) + " since start" : "")));
+    add(c, h("p", "hero-balance", f.money(hm.balance)));
+    var sub = (hm.start ? "Simulated starting stack " + f.money(hm.start) : "") + (f.num(hm.pnl_pct) ? " · " + sgnPct(hm.pnl_pct) + " since start" : "");
+    add(c, h("p", "hero-sub", sub));
     var row = h("div", "chips-row");
-    function pill(label, val, n) { var p = h("div", "pnl-pill tone-" + toneOf(n)); add(p, h("span", "pnl-k", label), h("strong", null, val)); return p; }
-    if (P) {
-      add(row, pill("Total P&L", f.signed(P.total_pnl_usd), P.total_pnl_usd), pill("Realized", f.signed(P.realized_pnl_usd), P.realized_pnl_usd),
-          pill("Unrealized", f.signed(P.unrealized_pnl_usd), P.unrealized_pnl_usd));
-    } else if (S) {
-      add(row, pill("Total P&L", f.num(S.balance) && f.num(S.start_value) ? f.signed(S.balance - S.start_value) : "—", S.balance - S.start_value));
+    function pill(label, val, n, subtxt) { var p = h("div", "pnl-pill tone-" + toneOf(n)); add(p, h("span", "pnl-k", label), h("strong", null, val), subtxt ? h("span", "pnl-sub", subtxt) : null); return p; }
+    if (hm.source) {
+      add(row, pill("Total P&L", f.signed(hm.pnl_usd), hm.pnl_usd, f.num(hm.pnl_pct) ? sgnPct(hm.pnl_pct) + " vs " + f.money(hm.start) + " start" : "vs simulated start"),
+          pill("Realized", f.signed(hm.realized), hm.realized, "closed trades, net of costs"),
+          pill("Unrealized", f.signed(hm.unrealized), hm.unrealized, "open positions, gross"));
+      var rm = DA.rangeModel(rangeSel, A.X.chart), sm = rm.state === "ready" || rm.state === "empty" ? rm.summary : null;
+      var rlabel = rm.showsAll ? "Change (all data)" : rm.tab.label + " change";
+      if (sm && f.num(sm.change_usd)) add(row, pill(rlabel, f.signed(sm.change_usd), sm.change_usd, f.num(sm.change_pct) ? sgnPct(sm.change_pct) + " over range" : null));
+      else add(row, pill(rlabel, rm.state === "loading" ? "…" : "—", 0, rm.state === "loading" ? "loading" : NA));
     }
-    if (S && f.num(S.today_pct)) add(row, pill("Today", sgnPct(S.today_pct), S.today_pct));
     add(c, row);
-    if (P) add(c, h("p", "hero-note", "Free " + f.money(P.free) + " · " + P.counts.open + " open · " + P.counts.closed + " closed · fees paid " + f.money(P.fees_paid_closed_usd)));
-    else if (S) add(c, h("p", "hero-note", "Detailed portfolio isn't available from the Worker yet; showing the balance the desk reports."));
-    else add(c, UI.skeleton(2));
+    var bits = [];
+    if (P && P.counts) bits.push("Free " + f.money(P.free) + " · " + P.counts.open + " open · " + P.counts.closed + " closed · fees paid " + f.money(P.fees_paid_closed_usd));
+    else if (hm.source === "pulse") bits.push((f.num(hm.open_count) ? hm.open_count + " open · " : "") + "details load with the 30 s portfolio");
+    if (!hm.source && !S) add(c, UI.skeleton(2));
+    else if (bits.length) add(c, h("p", "hero-note", bits[0]));
+    else if (hm.source === "state") add(c, h("p", "hero-note", "Detailed portfolio isn't available from the Worker yet; showing the balance the desk reports."));
+    if (hm.source) {
+      var asof = h("p", "hero-asof");
+      fillAsOf(asof, hm);
+      dash.asof = asof;
+      add(c, asof);
+    }
     return [c];
   }
 
@@ -179,20 +218,35 @@
     return b;
   }
 
-  // compact open positions on the dashboard (full list: Positions tab)
+  function estLine(o) {
+    var line = h("p", "est-line");
+    if (f.num(o.est_exit_fee)) {
+      add(line, h("span", "est-tag", "ESTIMATE"), h("span", null, " exit fee " + f.money(o.est_exit_fee) + (f.num(o.est_net) ? " · net if closed now " + f.signed(o.est_net) : "") + " · exit slippage not included"));
+      if (o.est_basis) line.setAttribute("title", o.est_basis);
+    } else {
+      add(line, h("span", "est-tag", "ESTIMATE"), h("span", null, " exit fee: " + NA));
+    }
+    return line;
+  }
+
+  // compact open positions on the dashboard (full list: Positions tab); 5 s values from pulse.paper over the 30 s portfolio rows
   function posGlanceCard() {
-    var P = D().portfolio;
-    if (!P || P.empty || !P.open.length) return [];
+    var P = D().portfolio, pu = D().pulse;
+    if (!P || P.empty) return [];
+    var rows = DA.openRows(P, pu && pu.paper) || [];
     var c = card("Open positions", tags("sim", "market"));
-    P.open.slice(0, 3).forEach(function (p) {
-      var b = h("button", "closed-row");
-      b.type = "button";
-      b.addEventListener("click", function () { openCoin(p.mint, "dashboard"); });
-      add(b, add(h("div", "closed-l"), h("strong", null, p.name), h("span", "muted small", "entry " + f.price(p.entry_price) + (p.priced ? " · last " + f.price(p.last_price) : " · no price yet") + " · " + f.money(p.size_usd))),
-        add(h("div", "closed-r tone-" + toneOf(p.pnl_usd)), h("strong", null, p.priced ? f.signed(p.pnl_usd) : "—"), h("span", null, p.priced ? sgnPct(p.pnl_pct) : "")));
+    if (!rows.length) add(c, h("p", "muted", "No open positions."));
+    rows.slice(0, 3).forEach(function (o) {
+      var b = h("div", "closed-row pos-glance");
+      var l = add(h("div", "closed-l"), h("strong", null, o.known ? o.name : "New position #" + o.id),
+        h("span", "muted small", (f.num(o.value) ? "value " + f.money(o.value) : "value " + NA) + " · " + (f.num(o.cost) ? "cost " + f.money(o.cost) : "cost " + NA)));
+      add(l, estLine(o));
+      var r = add(h("div", "closed-r tone-" + toneOf(o.unrealized)), h("strong", null, o.priced === false ? "no price yet" : f.signed(o.unrealized)), h("span", null, o.priced === false ? "" : sgnPct(o.unrealized_pct)), h("span", "muted small", "unrealized, gross"));
+      add(b, l, r);
+      if (o.known && o.mint) { b.setAttribute("role", "button"); b.tabIndex = 0; b.addEventListener("click", function () { openCoin(o.mint, "dashboard"); }); }
       c.appendChild(b);
     });
-    add(c, moreLink("All positions (" + P.counts.open + " open, " + P.counts.closed + " closed)", "positions"));
+    add(c, moreLink("All positions (" + (P.counts ? P.counts.open + " open, " + P.counts.closed + " closed" : "details") + ")", "positions"));
     return [c];
   }
 
@@ -225,64 +279,144 @@
     return [add(c, wrap)];
   }
 
-  function visiblePoints(P) {
-    var pts = P && P.equity && Array.isArray(P.equity.points) ? P.equity.points : [];
-    var r = RANGES.filter(function (x) { return x[0] === rangeSel; })[0], win = r ? r[1] : 0;
-    if (!pts.length) return pts;
-    if (!win) return pts;
-    var last = pts[pts.length - 1].t, out = pts.filter(function (p) { return p.t >= last - win; });
-    return out.length >= 2 ? out : pts;
+  /* The chart for the selected tab is asked for only while the dashboard shows it: once on entry / tab switch, then again when its
+     payload is older than the Worker's push cadence (1D 60 s, 1W and ALL 300 s). 30D and ALL share the chart:ALL payload (one entry). */
+  function ensureChart() {
+    if (A.route() !== "dashboard") return;
+    var tab = DA.tabById(rangeSel), key = tab.key, now = Date.now(), m = A.XM["chart:" + key];
+    var gap = m && m.error && m.error !== "unavailable" ? (m.error === "offline" ? 5000 : 30000) : tab.ttl;   // an aborted/offline fetch retries on the next 5 s sync tick; a server error waits 30 s
+    if (m && chartTried[key] && now - chartTried[key] < gap) return;
+    chartTried[key] = now;
+    A.ensure("chart", key, "/api/chart?range=" + key, tab.ttl);
+  }
+
+  function fmtAxisTime(spanS) {
+    return function (t) {
+      var d = new Date(t * 1000);
+      return spanS > 36 * 3600 ? d.toLocaleDateString([], { month: "short", day: "numeric" }) : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    };
+  }
+  function bucketText(s) { return !f.num(s) ? "" : s >= 3600 ? " · " + (s / 3600) + " h bucket" : s > 60 ? " · " + Math.round(s / 60) + " min bucket" : ""; }
+  function ddText(sm) { return f.num(sm.max_dd_pct) ? (sm.max_dd_pct > 0 ? "-" : "") + sm.max_dd_pct.toFixed(2) + "%" + (f.num(sm.max_dd_usd) ? " (" + (sm.max_dd_usd > 0 ? "-" : "") + f.money(sm.max_dd_usd) + ")" : "") : null; }
+
+  function summaryGrid(m) {
+    var sm = m.summary, g = h("div", "pos-grid range-grid");
+    function cell(k, v, tn) { var c = h("div", "kvc"); add(c, h("span", null, k)); add(c, v === null ? naCell() : h("strong", tn ? "tone-" + tn : null, v)); return c; }
+    var has = function (k) { return sm && f.num(sm[k]); };
+    add(g, cell("Start", has("start_v") ? f.money(sm.start_v) : null), cell("Latest", has("end_v") ? f.money(sm.end_v) : null),
+        cell("Change", has("change_usd") ? f.signed(sm.change_usd) + (has("change_pct") ? " (" + sgnPct(sm.change_pct) + ")" : "") : null, has("change_usd") ? toneOf(sm.change_usd) : null),
+        cell("Low", has("low") ? f.money(sm.low) : null), cell("High", has("high") ? f.money(sm.high) : null),
+        cell("Max drawdown (mark-to-market)", sm && ddText(sm)));
+    return g;
   }
 
   function drawEquity() {
-    var P = D().portfolio, eq = dash.eq, pts = visiblePoints(P);
+    var eq = dash.eq, m = DA.rangeModel(rangeSel, A.X.chart), P = D().portfolio, mk = A.XM["chart:" + m.tab.key] || {};
     Array.prototype.forEach.call(eq.tabs.children, function (b) {
       var on = b.getAttribute("data-range") === rangeSel;
       b.classList.toggle("is-active", on);
       b.setAttribute("aria-selected", on ? "true" : "false");
     });
-    dash.equityWrap.hidden = !P;
-    if (!P) return;
-    var sig = JSON.stringify([pts.length, pts.length ? pts[0].t : 0, pts.length ? pts[pts.length - 1].t : 0, pts.length ? pts[pts.length - 1].v : 0, rangeSel, P.equity.start_value]);
-    var first = pts[0], last = pts[pts.length - 1];
+    Array.prototype.forEach.call(eq.modes.children, function (b) {
+      var on = b.getAttribute("data-mode") === modeSel;
+      b.classList.toggle("is-active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    ensureChart();
+    var first = m.points[0], last = m.points[m.points.length - 1];
+    var span = m.state === "ready" ? last.t - first.t : 0;
+    var rangeName = m.showsAll ? "all recorded history" : m.tab.long;
     function readout(p) {
-      if (!p) { eq.probe.textContent = last ? "Now " + f.money(last.v) + (first && first !== last ? " · " + f.signed(last.v - first.v) + " over " + (rangeSel === "ALL" ? "all history" : rangeSel) : "") : "No equity history yet";
-        return; }
-      eq.probe.textContent = new Date(p.t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) + " · " + f.money(p.v);
+      if (m.state === "loading") { eq.probe.textContent = mk.error && mk.error !== "unavailable" ? "Could not load this chart (" + mk.error + "); trying again shortly." : "Loading chart…"; return; }
+      if (m.state === "unavailable") { eq.probe.textContent = NA; return; }
+      if (m.state === "empty") { eq.probe.textContent = "Not enough balance history yet to draw this range."; return; }
+      var sm = m.summary;
+      if (!p) {
+        eq.probe.textContent = sm && f.num(sm.end_v) ? "Latest chart point " + f.money(sm.end_v) + (f.num(sm.change_usd) ? " · " + f.signed(sm.change_usd) + (f.num(sm.change_pct) ? " (" + sgnPct(sm.change_pct) + ")" : "") + " over " + rangeName : "")
+          : "Latest chart point " + f.money(last.v);
+        return;
+      }
+      var pv = DA.pnlVs(p.v, m.base), t = new Date(p.t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      var txt = t + bucketText(m.bucket_s) + " · Equity " + f.money(p.v) + (f.num(pv.usd) ? " · P&L vs " + f.money(m.base) + " start " + f.signed(pv.usd) + " (" + sgnPct(pv.pct) + ")" : " · P&L vs start: " + NA);
+      if (f.num(p.lo) && p.lo < p.v) txt += " · low " + f.money(p.lo);
+      if (f.num(p.hi) && p.hi > p.v) txt += " · high " + f.money(p.hi);
+      DA.marksNear(m, p).forEach(function (x) { txt += " · " + (x.kind === "bought" ? "BUY" : "SELL") + (x.label ? " " + x.label : ""); });
+      eq.probe.textContent = txt;
     }
-    eq.canvas.setAttribute("aria-label", pts.length ? "Equity curve, " + f.money(first.v) + " to " + f.money(last.v) : "No equity data");
+    // notes: partial coverage, unavailable reasons
+    var note = null, tone = "warn";
+    if (m.state === "unavailable") {
+      note = m.tab.win30 ? (m.reason === "all-while-over-30d" ? "30D is not available: the desk reports all history in place of a 30-day window although more than 30 days exist. " + NA + "." : "30D " + NA.toLowerCase() + ": this desk build does not report a 30-day view, so nothing is drawn in its place.") : NA;
+    } else if (m.partialNote && m.state !== "empty") {
+      note = m.partialNote + ".";
+      if (m.showsAll) note += " This is not a 30-day window.";
+    } else if ((m.state === "ready" || m.state === "empty") && !m.coverageKnown && m.tab.id !== "ALL") {
+      note = "How much history backs this range isn't reported by this desk version yet."; tone = "info";
+    }
+    var gm = m.state === "ready" ? DA.gapModel(m) : null;
+    if (gm && gm.note) { note = note ? note + " " + gm.note : gm.note; tone = "warn"; }
+    eq.note.hidden = !note;
+    eq.note.textContent = note || "";
+    eq.note.setAttribute("data-tone", tone);
+    // chart
+    var sig = JSON.stringify([m.tab.id, modeSel, m.state, m.points.length, first ? first.t : 0, last ? last.t : 0, last ? last.v : 0, m.marks.length, m.base, m.spans && m.spans.length, m.bucket_s]);
+    eq.canvas.setAttribute("aria-label", "No equity data");
+    if (m.state === "ready") eq.canvas.setAttribute("aria-label", "Equity curve for " + rangeName + ", " + f.money(first.v) + " to " + f.money(last.v));
     if (eq.sig !== sig) {
       eq.sig = sig;
-      charts.equity = window.DeskCharts.equity(eq.canvas, pts, {
-        base: P.equity.start_value, fmtY: function (v) { return "$" + v.toFixed(v >= 1000 ? 0 : 1); },
-        fmtX: function (t) { return new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }); },
+      charts.equity = window.DeskCharts.advEquity(eq.canvas, { points: m.state === "ready" ? m.points : [], mode: modeSel, base: m.base, marks: m.marks, spans: m.spans || [], bucket_s: m.bucket_s }, {
+        fmtY: function (v) { return modeSel === "pct" ? (v > 0 ? "+" : "") + v.toFixed(Math.abs(v) < 10 ? 2 : 1) + "%" : "$" + v.toFixed(v >= 1000 ? 0 : 1); },
+        fmtX: fmtAxisTime(span),
         onProbe: readout
       });
     }
     readout(null);
-    var flat = pts.length > 1 && pts.every(function (p) { return p.v === pts[0].v; });
-    eq.cap.textContent = (P.empty ? "No simulated trades yet, so the line is flat. " : flat ? "Balance unchanged over this range. " : "") + "Mark-to-market PAPER balance (SIMULATION); dashed line = starting stack.";
+    // legend, summary, caption
+    var nBuy = m.marks.filter(function (x) { return x.kind === "bought"; }).length, nSell = m.marks.length - nBuy;
+    eq.legend.textContent = m.state !== "ready" ? "" : m.marks.length ? "▲ BUY (" + nBuy + ") · ▼ SELL (" + nSell + ") simulated trades in this range" + (m.marks.length >= 40 ? " (the latest 40)" : "") + ". Touch and drag for time, equity and P&L."
+      : "No simulated trades in this range, so there are no BUY / SELL markers. Touch and drag for time, equity and P&L.";
+    eq.sum.hidden = m.state !== "ready";
+    if (m.state === "ready") {
+      var sg = summaryGrid(m);
+      if (eq.sum.__sig !== JSON.stringify(m.summary)) { eq.sum.__sig = JSON.stringify(m.summary); eq.sum.replaceChildren(sg); }
+    }
+    var bits = [];
+    if (m.state === "ready") {
+      bits.push((P && P.empty ? "No simulated trades yet, so the line is flat. " : (m.points.every(function (p) { return p.v === m.points[0].v; }) ? "Balance unchanged over this range. " : "")) +
+        "Mark-to-market PAPER balance (SIMULATION, not real money); dashed line = " + (f.num(m.base) ? f.money(m.base) : "the") + " simulated starting stack" + (modeSel === "pct" ? " (0%)" : "") + ".");
+      var hist = f.num(m.history_days) ? "Recorded history: " + DA.historyText(m.history_days) + "." : "";
+      var gaps = gm && gm.caption ? " " + gm.caption : "";
+      bits.push(hist + gaps + " Times are in your device's time zone.");
+    }
+    eq.cap.textContent = bits.join(" ");
   }
 
   function perfCard() {
     var P = D().portfolio;
     if (!P) return [];
     var c = card("Performance", tags("sim"));
-    var smp = P.sample || {}, weak = !smp.meaningful, n = P.counts.closed;
-    var flagTxt = n === 0 ? "No closed trades yet" : "INSUFFICIENT DATA · " + n + " of " + smp.min_for_stats + " closed trades";
+    var sm = DA.sampleModel(P), weak = sm.insufficient, n = P.counts.closed;
+    var flagTxt = n === 0 ? "No closed trades yet" : "INSUFFICIENT DATA · " + n + " of " + (sm.min === null ? "?" : sm.min) + " closed trades";
     if (weak) add(c, h("p", "insuff", flagTxt));
     var grid = h("div", "tiles");
     var ci = P.win_rate_ci95 ? "95% range " + Math.round(P.win_rate_ci95[0] * 100) + "–" + Math.round(P.win_rate_ci95[1] * 100) + "%" : null;
+    var an = D().analytics;
+    var ddReal = an && f.num(an.max_drawdown_realized_pct) ? (an.max_drawdown_realized_pct > 0 ? "-" : "") + an.max_drawdown_realized_pct.toFixed(1) + "%" : null;
+    var ddMtm = f.num(P.max_drawdown_pct) ? (P.max_drawdown_pct > 0 ? "-" : "") + P.max_drawdown_pct.toFixed(1) + "%" : null;
+    var w = weak && n > 0;
     add(grid,
-      tile("Win rate", f.num(P.win_rate) ? Math.round(P.win_rate * 100) + "%" : "—", ci, "flat", weak && n > 0),
-      tile("Max drawdown", f.num(P.max_drawdown_pct) && P.equity && P.equity.points.length > 1 && n > 0 ? "-" + P.max_drawdown_pct.toFixed(1) + "%" : "—", f.num(P.max_drawdown_usd) && n > 0 ? "-" + f.money(P.max_drawdown_usd) : null, "down", weak && n > 0),
-      tile("Profit factor", f.num(P.profit_factor) ? P.profit_factor.toFixed(2) : "—", null, "flat", weak && n > 0),
-      tile("Closed trades", String(n), P.counts.wins + " won · " + P.counts.losses + " lost", "flat"),
-      tile("Avg win", f.num(P.avg_win_usd) ? f.signed(P.avg_win_usd) : "—", null, "up"),
-      tile("Avg loss", f.num(P.avg_loss_usd) ? f.signed(P.avg_loss_usd) : "—", null, "down"));
+      tile("Win rate", f.num(P.win_rate) ? Math.round(P.win_rate * 100) + "%" : "—", ci, "flat", w),
+      tile("Total trades", String(n), P.counts.wins + " won · " + P.counts.losses + " lost", "flat"),
+      tile("Profit factor", f.num(P.profit_factor) ? P.profit_factor.toFixed(2) : "—", null, "flat", w),
+      tile("Avg win", f.num(P.avg_win_usd) ? f.signed(P.avg_win_usd) : "—", null, "up", w),
+      tile("Avg loss", f.num(P.avg_loss_usd) ? f.signed(P.avg_loss_usd) : "—", null, "down", w),
+      tile("Avg trade", f.num(P.avg_trade_usd) ? f.signed(P.avg_trade_usd) : "—", f.num(P.avg_trade_pct) ? sgnPct(P.avg_trade_pct) + " per trade" : null, toneOf(P.avg_trade_usd), w),
+      tile("Max drawdown (MTM)", ddMtm || "—", ddMtm && f.num(P.max_drawdown_usd) ? (P.max_drawdown_usd > 0 ? "-" : "") + f.money(P.max_drawdown_usd) + " · mark-to-market, all history" : NA, "down", w),
+      tile("Max drawdown (realized)", ddReal || "—", ddReal && an && f.num(an.max_drawdown_realized_usd) ? (an.max_drawdown_realized_usd > 0 ? "-" : "") + f.money(an.max_drawdown_realized_usd) + " · closed trades only" : NA + " until the Analytics screen is opened", "down", w),
+      tile("Best / worst trade", f.num(P.best_trade_usd) ? f.signed(P.best_trade_usd) : "—", f.num(P.worst_trade_usd) ? "worst " + f.signed(P.worst_trade_usd) : null, "flat", w));
     add(c, grid);
     var ex = P.execution || {};
-    add(c, h("p", "muted small", (smp.note || "") + (ex.slippage_modeled === false ? " Slippage is not modelled: fills use the polled price, so simulated P&L is optimistic." : "")));
+    add(c, h("p", "muted small", (sm.note || "") + (ex.slippage_modeled === false ? " Slippage is not modelled: fills use the polled price, so simulated P&L is optimistic." : "")));
     return [c];
   }
 
@@ -399,12 +533,14 @@
     if (!dash) buildDash();
     var d = D(), P = d.portfolio, S = d.state, pu = d.pulse, mk = d.market;
     var minute = Math.floor(Date.now() / 5000);
-    UI.memo(dash.hero, sigOf(P && [P.balance, P.total_pnl_usd, P.realized_pnl_usd, P.unrealized_pnl_usd, P.free, P.counts, P.fees_paid_closed_usd], S && [S.balance, S.today_pct], A.isDemo()), heroCard);
+    var rm = DA.rangeModel(rangeSel, A.X.chart), hm = DA.heroModel(d, M(), Date.now());
+    UI.memo(dash.hero, sigOf([hm.source, hm.balance, hm.start, hm.pnl_usd, hm.pnl_pct, hm.realized, hm.unrealized, hm.open_count], rm.state, rm.summary, rm.tab.id, rm.showsAll, P && [P.free, P.counts, P.fees_paid_closed_usd], A.isDemo()), heroCard);
+    if (dash.asof && dash.hero.contains(dash.asof)) fillAsOf(dash.asof, hm);
     UI.memo(dash.waiting, sigOf(P && P.empty, mk && mk.funnel, A.isDemo()), waitingCard);
     drawEquity();
-    UI.memo(dash.pos, sigOf(P && [P.open, P.counts, P.empty], mk && mk.discoveries && mk.discoveries.length, A.isDemo()), posGlanceCard);
+    UI.memo(dash.pos, sigOf(P && [P.open, P.counts, P.empty], pu && pu.paper && pu.paper.open, A.isDemo()), posGlanceCard);
     UI.memo(dash.disc, sigOf(mk && mk.discoveries && mk.discoveries.slice(0, 2), A.isDemo()), discGlanceCard);
-    UI.memo(dash.perf, sigOf(P && [P.win_rate, P.win_rate_ci95, P.max_drawdown_pct, P.profit_factor, P.counts, P.sample, P.avg_win_usd, P.avg_loss_usd], A.isDemo()), perfCard);
+    UI.memo(dash.perf, sigOf(P && [P.win_rate, P.win_rate_ci95, P.max_drawdown_pct, P.max_drawdown_usd, P.profit_factor, P.counts, P.sample, P.avg_win_usd, P.avg_loss_usd, P.avg_trade_usd, P.avg_trade_pct, P.best_trade_usd, P.worst_trade_usd], d.analytics && [d.analytics.max_drawdown_realized_pct, d.analytics.max_drawdown_realized_usd], A.isDemo()), perfCard);
     var al = deriveAlerts();
     UI.memo(dash.alerts, sigOf(al.map(function (a) { return [a.title, a.text, a.sev, a.live ? 0 : Math.floor((Date.now() - a.t) / 60000)]; }), showAllAlerts, !!pu), alertsCard);
     UI.memo(dash.agents, sigOf(ORDER.map(function (n) { return A.agentView(n).status; }), !!pu), agentsCard);
@@ -473,25 +609,16 @@
         h("strong", "pos-pnl tone-" + toneOf(p.pnl_usd), p.priced ? f.signed(p.pnl_usd) + " (" + sgnPct(p.pnl_pct) + ")" : "no price yet"));
       var g = h("div", "pos-grid");
       add(g, kvCell("Entry", f.price(p.entry_price)), kvCell("Last", p.priced ? f.price(p.last_price) : "—"), kvCell("Size", f.money(p.size_usd)),
-          kvCell("Stop", f.price(p.stop_price)), kvCell("Liquidity", mk ? f.compact(mk.liquidity_usd) : "—"), kvCell("Mkt cap", mk ? f.compact(mk.market_cap) : "—"));
+          kvCell("Value now", f.num(p.value_usd) ? f.money(p.value_usd) : NA), kvCell("Cost", f.num(p.cost_usd) ? f.money(p.cost_usd) : NA), kvCell("Stop", f.price(p.stop_price)),
+          kvCell("Liquidity", mk ? f.compact(mk.liquidity_usd) : "—"), kvCell("Mkt cap", mk ? f.compact(mk.market_cap) : "—"), kvCell("Held", DA.heldText(p.held_min) || "—"));
+      var est = estLine({ est_exit_fee: f.num(p.est_exit_fee_usd) ? p.est_exit_fee_usd : null, est_net: f.num(p.est_net_if_closed_usd) ? p.est_net_if_closed_usd : null, est_basis: p.est_basis });
       var foot = add(h("div", "pos-foot"), p.trail_active ? UI.chip("trailing stop armed", "info") : UI.chip("fixed stop", "flat"), h("span", "muted small", "opened " + f.agoIso(p.opened_at) + (p.last_price_at ? " · priced " + f.agoIso(p.last_price_at) : "")));
-      add(b, top, g, foot);
+      add(b, top, g, est, h("p", "chart-cap", "P&L above is gross unrealized (marked at the last polled price, before exit fees)."), foot);
       oc.appendChild(b);
     });
     out.push(oc);
-    // closed
-    var cc = card("Closed positions", tags("sim"));
-    if (!P.closed.length) add(cc, h("p", "muted", "Nothing closed yet."));
-    P.closed.forEach(function (p) {
-      var b = h("button", "closed-row");
-      b.type = "button";
-      b.addEventListener("click", function () { openCoin(p.mint, "positions"); });
-      var dur = p.opened_at && p.closed_at ? Math.round((Date.parse(p.closed_at) - Date.parse(p.opened_at)) / 60000) : null;
-      add(b, add(h("div", "closed-l"), h("strong", null, p.name), h("span", "muted small", (p.exit_reason || "closed") + (dur !== null ? " · held " + dur + "m" : "") + " · fees " + f.money(p.fees_usd))),
-        add(h("div", "closed-r tone-" + toneOf(p.pnl_usd)), h("strong", null, f.signed(p.pnl_usd)), h("span", null, sgnPct(p.pnl_pct))));
-      cc.appendChild(b);
-    });
-    out.push(cc);
+    // simulated trade history (latest 50 closed trades) with totals over ALL closed trades
+    out.push(tradeHistoryCard(P));
     // history
     var hc = card("BUY / SELL simulation history", tags("sim"));
     var ul = h("ul", "hist");
@@ -507,6 +634,80 @@
     out.push(hc);
     return out;
   }
+  /* ---- simulated trade history: totals come from the portfolio payload (they cover ALL closed trades); rows are the latest 50 ---- */
+  function bps(n) { return f.num(n) ? " · " + (Math.round(n * 10) / 10) + " bps" : ""; }
+  function tradeKv(pairs) {
+    var dl = h("dl", "kv trade-kv");
+    pairs.forEach(function (x) { add(dl, h("dt", null, x[0]), x[1] === null || x[1] === undefined || x[1] === "" ? add(h("dd"), naCell()) : h("dd", null, x[1])); });
+    return dl;
+  }
+  function localTime(iso) {
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  function tradeDetails(p, P) {
+    var d = h("div", "trade-detail");
+    var held = f.num(p.held_min) ? DA.heldText(p.held_min) : (p.opened_at && p.closed_at ? DA.heldText((Date.parse(p.closed_at) - Date.parse(p.opened_at)) / 60000) : null);
+    var modeled = p.slippage_modeled === false ? "not modelled" : null;
+    add(d, tradeKv([
+      ["Opened", p.opened_at ? localTime(p.opened_at) : null], ["Closed", p.closed_at ? localTime(p.closed_at) : null], ["Held", held],
+      ["Entry, market price", f.num(p.entry_price) ? f.price(p.entry_price) : null],
+      ["Entry, simulated fill", f.num(p.fill_price) ? f.price(p.fill_price) + bps(p.entry_slippage_bps) : null],
+      ["Exit, market price", f.num(p.exit_price) ? f.price(p.exit_price) : null],
+      ["Exit, simulated fill", f.num(p.exit_fill_price) ? f.price(p.exit_fill_price) + bps(p.exit_slippage_bps) : null],
+      ["Size", f.num(p.size_usd) ? f.money(p.size_usd) : null],
+      ["Fees, both sides", f.num(p.fees_usd) ? f.money(p.fees_usd) : null],
+      ["Slippage cost", modeled || (f.num(p.slippage_usd) ? f.money(p.slippage_usd) : null)],
+      ["Gross P&L (before fees and slippage)", f.num(p.gross_pnl_usd) ? f.signed(p.gross_pnl_usd) : null],
+      ["Net P&L (after fees and slippage)", f.num(p.pnl_usd) ? f.signed(p.pnl_usd) + (f.num(p.pnl_pct) ? " (" + sgnPct(p.pnl_pct) + ")" : "") : null],
+      ["Exit reason", p.exit_reason || null],
+      ["Pool liquidity at entry / exit", f.num(p.liquidity_entry_usd) ? f.compact(p.liquidity_entry_usd) + " / " + (f.num(p.liquidity_exit_usd) ? f.compact(p.liquidity_exit_usd) : NA) : null],
+      ["Fill model", p.sim_model || null]]));
+    var acts = h("div", "trade-acts");
+    var more = h("button", "btn btn-ghost");
+    more.type = "button";
+    more.textContent = "Coin details";
+    more.addEventListener("click", function () { openCoin(p.mint, "positions"); });
+    add(acts, more);
+    if (p.coin_url) { var ul = h("ul", "ext-links"); if (A.renderFomoLink(ul, "FOMO coin page", "Open on FOMO", p.coin_url, P)) add(acts, ul); }
+    add(d, acts);
+    return d;
+  }
+  function tradeHistoryCard(P) {
+    var c = card("Simulated trade history", tags("sim"));
+    var n = P.counts.closed, rows = Array.isArray(P.closed) ? P.closed : [], ex = P.execution || {};
+    if (!rows.length) { add(c, h("p", "muted", "Nothing closed yet.")); return c; }
+    var tot = h("div", "tiles trade-tot");
+    add(tot, tile("Closed trades", String(n), P.counts.wins + " won · " + P.counts.losses + " lost", "flat"),
+      tile("Net realized P&L", f.signed(P.realized_pnl_usd), "all " + n + " trades, after costs", toneOf(P.realized_pnl_usd)),
+      tile("Fees paid", f.money(P.fees_paid_closed_usd), "all " + n + " trades", "flat"),
+      tile("Slippage (modelled)", ex.slippage_modeled === false ? "not modelled" : f.num(ex.slippage_total_usd) ? f.money(ex.slippage_total_usd) : "—", ex.slippage_modeled === false ? null : "all " + n + " trades", "flat"),
+      tile("Avg trade", f.num(P.avg_trade_usd) ? f.signed(P.avg_trade_usd) : "—", f.num(P.avg_trade_pct) ? sgnPct(P.avg_trade_pct) : null, toneOf(P.avg_trade_usd)),
+      tile("Win rate", f.num(P.win_rate) ? Math.round(P.win_rate * 100) + "%" : "—", DA.sampleModel(P).insufficient ? "insufficient data" : null, "flat", DA.sampleModel(P).insufficient));
+    add(c, tot);
+    add(c, h("p", "muted small", rows.length < n ? "Showing the latest " + rows.length + " of " + n + " closed trades. The totals above cover all " + n + "; older trades are not listed here." : "All " + n + " closed trades are listed."));
+    var list = h("div", "trade-list");
+    rows.forEach(function (p) {
+      var open = !!openTrades[p.id];
+      var wrap = h("div", "trade" + (open ? " is-open" : ""));
+      var b = h("button", "closed-row trade-row");
+      b.type = "button";
+      b.setAttribute("aria-expanded", open ? "true" : "false");
+      b.addEventListener("click", function () {
+        var now = !openTrades[p.id];
+        if (now) openTrades[p.id] = true; else delete openTrades[p.id];
+        posBox.__sig = null; updatePositions();
+      });
+      var held = f.num(p.held_min) ? DA.heldText(p.held_min) : null;
+      add(b, add(h("div", "closed-l"), h("strong", null, p.name), h("span", "muted small", (p.exit_reason || "closed") + (held ? " · held " + held : "") + " · " + (p.closed_at ? localTime(p.closed_at) : "—"))),
+        add(h("div", "closed-r tone-" + toneOf(p.pnl_usd)), h("strong", null, f.signed(p.pnl_usd)), h("span", null, sgnPct(p.pnl_pct) + " net"), f.num(p.gross_pnl_usd) ? h("span", "muted small", "gross " + f.signed(p.gross_pnl_usd)) : null));
+      add(wrap, b);
+      if (open) add(wrap, tradeDetails(p, P));
+      list.appendChild(wrap);
+    });
+    add(c, list);
+    return c;
+  }
   function kvCell(k, v) { var c = h("div", "kvc"); add(c, h("span", null, k), h("strong", null, v)); return c; }
 
   A.register("positions", {
@@ -515,7 +716,7 @@
   });
   function updatePositions() {
     var P = D().portfolio, mk = D().market;
-    UI.memo(posBox, sigOf(P && [P.counts, P.open, P.closed, P.history, P.unrealized_pnl_usd], mk && mk.discoveries && mk.discoveries.length, (M().portfolio || {}).unavailable, A.isDemo(), Math.floor(Date.now() / 30000)), positionsBody);
+    UI.memo(posBox, sigOf(P && [P.counts, P.open, P.closed, P.history, P.unrealized_pnl_usd, P.realized_pnl_usd, P.fees_paid_closed_usd, P.execution, P.win_rate, P.avg_trade_usd], Object.keys(openTrades), mk && mk.discoveries && mk.discoveries.length, (M().portfolio || {}).unavailable, A.isDemo(), Math.floor(Date.now() / 30000)), positionsBody);
   }
 
   /* ================================================================ #scanner */
