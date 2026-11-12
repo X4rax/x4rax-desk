@@ -7,31 +7,208 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Desk">
-  <meta name="theme-color" content="#111111">
-  <title>Desk · PAPER</title>
+  <meta name="apple-mobile-web-app-title" content="X4rax Desk">
+  <meta name="theme-color" content="#05060a">
+  <meta name="color-scheme" content="dark">
+  <title>X4rax Desk · PAPER</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
   <link rel="stylesheet" href="app.css">
 </head>
-<body>
-  <main>
-    <header>
-      <h1>Desk</h1>
-      <p class="mode" id="mode">PAPER</p>
-    </header>
-    <section>
-      <p>Placeholder app. Agents, charts and trade buttons land in later steps.</p>
-      <canvas id="chart" width="320" height="160" aria-label="Balance chart placeholder"></canvas>
-      <ul id="heartbeats"></ul>
+<body data-route="splash">
+  <!-- Icon sprite: original X4rax Desk glyphs, one per agent. Drawn with currentColor strokes. -->
+  <svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="g-brand" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#8b6cff"/>
+        <stop offset="1" stop-color="#22d3ee"/>
+      </linearGradient>
+      <symbol id="i-main" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.6"/><circle cx="12" cy="4.6" r="1.7"/><circle cx="5.4" cy="16.2" r="1.7"/><circle cx="18.6" cy="16.2" r="1.7"/><path d="M12 6.3v3.1M6.9 15.3l2.8-1.6M17.1 15.3l-2.8-1.6"/></symbol>
+      <symbol id="i-scanner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="4.3"/><path d="M12 12l6-5.6"/><circle cx="16.2" cy="15.6" r="1.1" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-auditor" viewBox="0 0 24 24"><circle cx="10.4" cy="10.4" r="6.4"/><path d="M15.2 15.2L20.4 20.4"/><path d="M7.6 10.6l2.1 2.1 3.6-3.9"/></symbol>
+      <symbol id="i-analyst" viewBox="0 0 24 24"><rect x="4.2" y="9" width="3.2" height="7" rx=".7"/><path d="M5.8 5.8V9M5.8 16v2.6"/><rect x="10.4" y="6.4" width="3.2" height="8" rx=".7"/><path d="M12 3.4v3M12 14.4v3.2"/><rect x="16.6" y="11" width="3.2" height="6" rx=".7"/><path d="M18.2 7.6V11M18.2 17v3"/></symbol>
+      <symbol id="i-executor" viewBox="0 0 24 24"><path d="M13.4 2.8L5.4 13.4h5.5l-.9 7.8 8.6-11.2h-5.6z"/></symbol>
+      <symbol id="i-risk" viewBox="0 0 24 24"><path d="M12 3l7.2 2.7v5.5c0 4.4-3 7.9-7.2 9.4-4.2-1.5-7.2-5-7.2-9.4V5.7z"/><path d="M8.3 13.4l2.4-2.5 2 1.9 2.9-3.2"/></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.2L12 4l8 7.2V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></symbol>
+      <symbol id="i-positions" viewBox="0 0 24 24"><rect x="3.5" y="6" width="17" height="12.5" rx="2.4"/><path d="M3.5 10.5h17M8 14.6h3"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.8 12S6.2 5.8 12 5.8 21.2 12 21.2 12 17.8 18.2 12 18.2 2.8 12 2.8 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+      <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3"/><rect x="4" y="8" width="16.5" height="11" rx="2.4"/><circle cx="16.3" cy="13.5" r="1.2" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.7H5z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M18.2 5.8l-1.7 1.7M7.5 16.5l-1.7 1.7"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 18.5V5.5M4 18.5h16"/><path d="M7.5 14.5l3.4-4 3 2.4 4.3-5.4"/></symbol>
+      <symbol id="x4-mark" viewBox="0 0 64 64">
+        <path d="M32 5l23.4 13.5v27L32 59 8.6 45.5v-27z" fill="none" stroke="url(#g-brand)" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M23 23l18 18M41 23L23 41" fill="none" stroke="url(#g-brand)" stroke-width="5" stroke-linecap="round"/>
+        <g fill="#b388ff"><circle cx="32" cy="5" r="3"/></g>
+        <circle cx="55.4" cy="18.5" r="3" fill="#64d2ff"/>
+        <circle cx="55.4" cy="45.5" r="3" fill="#0a84ff"/>
+        <circle cx="32" cy="59" r="3" fill="#ffd60a"/>
+        <circle cx="8.6" cy="45.5" r="3" fill="#00d35a"/>
+        <circle cx="8.6" cy="18.5" r="3" fill="#ff6b9a"/>
+      </symbol>
+    </defs>
+  </svg>
+  <div class="bg" aria-hidden="true"><i class="bg-glow bg-glow-a"></i><i class="bg-glow bg-glow-b"></i></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true"><use href="#x4-mark"/></svg>
+      <span class="brand-name">X4rax <b>Desk</b></span>
+    </div>
+    <p class="mode" id="mode">PAPER</p>
+    <span class="link-dot" id="link-dot" data-state="idle" role="img" aria-label="Desk link: idle"></span>
+  </header>
+
+  <main id="screens">
+    <!-- 1. Splash (animated logo). Decorative: no real progress is implied. -->
+    <section class="screen screen-splash" id="screen-splash" data-screen="splash" aria-label="X4rax Desk">
+      <div class="splash-stage">
+        <div class="splash-halo" aria-hidden="true"></div>
+        <svg class="splash-mark" viewBox="0 0 64 64" role="img" aria-label="X4rax Desk logo">
+          <defs>
+            <linearGradient id="g-splash" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#8b6cff"/>
+              <stop offset="1" stop-color="#22d3ee"/>
+            </linearGradient>
+          </defs>
+          <path class="sp-hex" pathLength="1" d="M32 5l23.4 13.5v27L32 59 8.6 45.5v-27z" fill="none" stroke="url(#g-splash)" stroke-width="2.4" stroke-linejoin="round"/>
+          <path class="sp-x sp-x1" pathLength="1" d="M23 23l18 18" fill="none" stroke="url(#g-splash)" stroke-width="5" stroke-linecap="round"/>
+          <path class="sp-x sp-x2" pathLength="1" d="M41 23L23 41" fill="none" stroke="url(#g-splash)" stroke-width="5" stroke-linecap="round"/>
+          <circle class="sp-node sp-n1" cx="32" cy="5" r="3"/>
+          <circle class="sp-node sp-n2" cx="55.4" cy="18.5" r="3"/>
+          <circle class="sp-node sp-n3" cx="55.4" cy="45.5" r="3"/>
+          <circle class="sp-node sp-n4" cx="32" cy="59" r="3"/>
+          <circle class="sp-node sp-n5" cx="8.6" cy="45.5" r="3"/>
+          <circle class="sp-node sp-n6" cx="8.6" cy="18.5" r="3"/>
+        </svg>
+        <h1 class="splash-word"><span class="sw-a">X4RAX</span><span class="sw-b">DESK</span></h1>
+        <p class="splash-tag">Six agents. One desk.</p>
+        <p class="splash-paper">PAPER MODE · NO REAL TRADES</p>
+      </div>
     </section>
-    <section id="fomo" hidden>
-      <h2>FOMO</h2>
-      <p class="fomo-local">This desk never trades. These links only open FOMO. [Bought] and [Skip] in a push only update the desk's own log; they are not trades.</p>
-      <ul id="fomo-links"></ul>
+
+    <!-- #pair: restyled pairing. app.js fills #pair-slot (same logic, storage key and endpoints as before). -->
+    <section class="screen screen-pair" id="screen-pair" data-screen="pair" hidden aria-labelledby="pair-title">
+      <div class="pair-hero">
+        <svg class="pair-mark" viewBox="0 0 64 64" aria-hidden="true"><use href="#x4-mark"/></svg>
+        <h2 id="pair-title" class="screen-title" tabindex="-1">Pair this iPhone</h2>
+        <p class="screen-sub">Enter the pairing code shown on your desk. This app only reads: it can't trade or move funds.</p>
+      </div>
+      <div id="pair-slot"></div>
+      <ul class="pair-roster" aria-label="The six agents" id="pair-roster"></ul>
+      <p class="pair-foot">PAPER mode · no wallet access · no orders</p>
+    </section>
+
+    <!-- 2. FOMO connection (read-only). Filled by screens-flow.js from the Worker payloads (state.fomo, wallet). -->
+    <section class="screen screen-fomo" id="screen-fomo" data-screen="fomo" hidden aria-labelledby="fomo-title">
+      <nav class="stepper flow-only" aria-label="Flow progress" data-step="1"></nav>
+      <h2 id="fomo-title" class="screen-title" tabindex="-1">FOMO connection</h2>
+      <div id="fomo-body" class="stack"></div>
+      <section id="fomo" class="fomo-external" hidden>
+        <h3>Open FOMO <span class="ext-tag">external site</span></h3>
+        <p class="fomo-local">This desk never trades. These links only open FOMO. [Bought] and [Skip] in a push only update the desk's own log; they are not trades.</p>
+        <ul id="fomo-links"></ul>
+      </section>
+      <div class="flow-only flow-nav">
+        <button type="button" class="btn btn-primary" data-go="init">Next: agent start-up</button>
+        <button type="button" class="btn-link" data-flow-end="dashboard">Skip to dashboard</button>
+      </div>
+      <button type="button" class="btn btn-ghost tab-only" data-startup="1">Show startup</button>
+    </section>
+
+    <!-- 3. Agent initialisation: six rows lit by each agent's real heartbeat/status -->
+    <section class="screen screen-init" id="screen-init" data-screen="init" hidden aria-labelledby="init-title">
+      <nav class="stepper flow-only" aria-label="Flow progress" data-step="2"></nav>
+      <h2 id="init-title" class="screen-title" tabindex="-1">Agent start-up</h2>
+      <div id="init-body" class="stack"></div>
+      <div class="flow-nav">
+        <button type="button" class="btn btn-primary" data-go="pipeline">Next: agent pipeline</button>
+        <button type="button" class="btn-link" data-flow-end="dashboard">Skip to dashboard</button>
+      </div>
+    </section>
+
+    <!-- 4. Pipeline -->
+    <section class="screen screen-pipeline" id="screen-pipeline" data-screen="pipeline" hidden aria-labelledby="pipeline-title">
+      <nav class="stepper flow-only" aria-label="Flow progress" data-step="3"></nav>
+      <h2 id="pipeline-title" class="screen-title" tabindex="-1">Agent pipeline</h2>
+      <div id="pipeline-body" class="stack"></div>
+      <div class="flow-only flow-nav">
+        <button type="button" class="btn btn-primary" data-flow-end="dashboard">Open dashboard</button>
+      </div>
+      <button type="button" class="btn btn-ghost tab-only" data-startup="1">Show startup</button>
+    </section>
+
+    <!-- 5. Dashboard -->
+    <section class="screen screen-dash" id="screen-dashboard" data-screen="dashboard" hidden aria-labelledby="dashboard-title">
+      <h2 id="dashboard-title" class="screen-title" tabindex="-1">Dashboard</h2>
+      <div id="dashboard-body" class="stack"></div>
+    </section>
+
+    <!-- 6. Positions -->
+    <section class="screen screen-dash" id="screen-positions" data-screen="positions" hidden aria-labelledby="positions-title">
+      <h2 id="positions-title" class="screen-title" tabindex="-1">Positions</h2>
+      <div id="positions-body" class="stack"></div>
+    </section>
+
+    <!-- 7. Scanner -->
+    <section class="screen screen-dash" id="screen-scanner" data-screen="scanner" hidden aria-labelledby="scanner-title">
+      <h2 id="scanner-title" class="screen-title" tabindex="-1">Scanner</h2>
+      <div id="scanner-body" class="stack"></div>
+    </section>
+
+    <!-- 8. One coin: chart, simulated position, audit result -->
+    <section class="screen screen-dash" id="screen-coin" data-screen="coin" hidden aria-labelledby="coin-title">
+      <button type="button" class="btn-back" id="coin-back"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg><span>Back</span></button>
+      <h2 id="coin-title" class="screen-title" tabindex="-1">Coin</h2>
+      <div id="coin-body" class="stack"></div>
+    </section>
+
+    <!-- 9. Analytics: simulation statistics, Scanner funnel and scores, strategy evaluation, execution protections -->
+    <section class="screen screen-dash" id="screen-analytics" data-screen="analytics" hidden aria-labelledby="analytics-title">
+      <h2 id="analytics-title" class="screen-title" tabindex="-1">Analytics</h2>
+      <div id="analytics-body" class="stack"></div>
+    </section>
+
+    <!-- 10. Alerts: recorded alerts, data freshness and Worker sync -->
+    <section class="screen screen-dash" id="screen-alerts" data-screen="alerts" hidden aria-labelledby="alerts-title">
+      <button type="button" class="btn-back" data-go="settings"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg><span>Settings</span></button>
+      <h2 id="alerts-title" class="screen-title" tabindex="-1">Alerts</h2>
+      <div id="alerts-body" class="stack"></div>
+    </section>
+
+    <!-- 11. Settings: read-only desk settings plus this app's own items -->
+    <section class="screen screen-dash" id="screen-settings" data-screen="settings" hidden aria-labelledby="settings-title">
+      <h2 id="settings-title" class="screen-title" tabindex="-1">Settings</h2>
+      <div id="settings-body" class="stack"></div>
     </section>
   </main>
+
+  <nav class="tabbar" aria-label="Main">
+    <button type="button" data-go="dashboard"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
+    <button type="button" data-go="pipeline"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-main"/></svg><span>Agents</span></button>
+    <button type="button" data-go="scanner"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-scanner"/></svg><span>Scanner</span></button>
+    <button type="button" data-go="positions"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-positions"/></svg><span>Positions</span></button>
+    <button type="button" data-go="analytics"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg><span>Analytics</span></button>
+    <button type="button" data-go="settings"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
+  </nav>
+
+  <details class="linkbar" id="linkbar">
+    <summary><span class="linkbar-label">Desk link</span><span class="linkbar-state" id="link-text">not connected</span></summary>
+    <ul id="heartbeats"></ul>
+  </details>
+
   <script src="chart.js"></script>
+  <script src="ui.js"></script>
   <script src="app.js"></script>
+  <script src="screens-flow.js"></script>
+  <script src="screens-dash.js"></script>
+  <script src="screens-m3.js"></script>
+  <script src="boot.js"></script>
 </body>
 </html>
