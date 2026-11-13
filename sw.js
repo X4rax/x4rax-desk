@@ -2,8 +2,8 @@
    as sent (the desk never puts secrets in it) and a tap opens the app on that route.
    CACHE is bumped when app.js / manifest / static assets change so
    iOS home-screen apps fetch the new files. */
-var CACHE = "x4rax-desk-v10";
-var ASSETS = ["./index.html", "./app.js", "./ui.js", "./boot.js", "./screens-flow.js", "./screens-dash.js", "./app.css", "./chart.js", "./screens-m3.js", "./manifest.json"];
+var CACHE = "x4rax-desk-v11";
+var ASSETS = ["./index.html", "./app.js", "./ui.js", "./boot.js", "./screens-flow.js", "./screens-dash.js", "./app.css", "./chart.js", "./adv.js", "./screens-m3.js", "./manifest.json"];
 
 self.addEventListener("install", function (event) {
   event.waitUntil(
